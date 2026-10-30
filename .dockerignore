@@ -1,0 +1,10 @@
+.git/
+.github/
+bin/
+docs/
+*.md
+*.out
+.DS_Store
+.golangci.yml
+Makefile
+docker-compose*.yml
