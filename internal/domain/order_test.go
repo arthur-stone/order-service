@@ -86,7 +86,7 @@ func TestOrder_StatusTransitions(t *testing.T) {
 
 	// Cannot cancel paid order directly
 	if err := order.Cancel(); err == nil {
-		t.Errorf("expected error when cancelling paid order")
+		t.Errorf("expected error when canceling paid order")
 	}
 
 	// Test fresh order cancel
@@ -94,7 +94,7 @@ func TestOrder_StatusTransitions(t *testing.T) {
 	if err := freshOrder.Cancel(); err != nil {
 		t.Fatalf("failed to cancel fresh order: %v", err)
 	}
-	if freshOrder.Status != domain.StatusCancelled {
-		t.Errorf("expected status CANCELLED, got %s", freshOrder.Status)
+	if freshOrder.Status != domain.StatusCanceled {
+		t.Errorf("expected status CANCELED, got %s", freshOrder.Status)
 	}
 }

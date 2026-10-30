@@ -53,6 +53,6 @@ func TestOrderService_CRUD(t *testing.T) {
 	// Cancel paid should fail
 	_, err = svc.CancelOrder(ctx, created.ID)
 	if err == nil {
-		t.Errorf("expected error cancelling paid order")
+		t.Errorf("expected error canceling paid order")
 	}
 }

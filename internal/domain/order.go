@@ -20,9 +20,9 @@ var (
 type OrderStatus string
 
 const (
-	StatusCreated   OrderStatus = "CREATED"
-	StatusPaid      OrderStatus = "PAID"
-	StatusCancelled OrderStatus = "CANCELLED"
+	StatusCreated  OrderStatus = "CREATED"
+	StatusPaid     OrderStatus = "PAID"
+	StatusCanceled OrderStatus = "CANCELED"
 )
 
 type OrderItem struct {
@@ -87,13 +87,13 @@ func (o *Order) Pay() error {
 }
 
 func (o *Order) Cancel() error {
-	if o.Status == StatusCancelled {
-		return fmt.Errorf("%w: order is already cancelled", ErrInvalidStatusTransition)
+	if o.Status == StatusCanceled {
+		return fmt.Errorf("%w: order is already canceled", ErrInvalidStatusTransition)
 	}
 	if o.Status == StatusPaid {
-		return fmt.Errorf("%w: paid order cannot be cancelled directly", ErrInvalidStatusTransition)
+		return fmt.Errorf("%w: paid order cannot be canceled directly", ErrInvalidStatusTransition)
 	}
-	o.Status = StatusCancelled
+	o.Status = StatusCanceled
 	o.UpdatedAt = time.Now().UTC()
 	return nil
 }

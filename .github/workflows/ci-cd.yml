@@ -17,35 +17,20 @@ env:
 jobs:
   lint:
     name: Code Linting
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '>=1.24'
-          cache: true
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.6
-          args: --timeout=5m
+      - name: Run linter
+        run: $(go env GOPATH)/bin/golangci-lint run ./...
 
   test:
     name: Unit & Domain Tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '>=1.24'
-          cache: true
 
       - name: Run tests with race detector
         run: go test -v -race -coverprofile=coverage.out ./...
@@ -55,17 +40,11 @@ jobs:
 
   build:
     name: Compile Binary
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [lint, test]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '>=1.24'
-          cache: true
 
       - name: Build server binary
         run: |
@@ -75,65 +54,34 @@ jobs:
 
   docker-build-push:
     name: Build & Push Docker Image
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [build]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to GitHub Container Registry (GHCR)
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short,prefix=sha-
-            type=ref,event=branch
-            type=ref,event=pr
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            VERSION=${{ github.sha }}
-            COMMIT=${{ github.sha }}
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          TAG_SHA="sha-${GITHUB_SHA::7}"
+          docker build -t "$IMAGE:latest" -t "$IMAGE:$TAG_SHA" .
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:$TAG_SHA"
 
   deploy:
     name: Deploy & Healthcheck Verification
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [docker-build-push]
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Deploy and run container
         run: |
           IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
           echo "Deploying image: $IMAGE_TAG"
+          docker stop order-service-prod || true
+          docker rm order-service-prod || true
           docker pull "$IMAGE_TAG"
           docker run -d --name order-service-prod -p 8080:8080 "$IMAGE_TAG"
 
@@ -142,7 +90,7 @@ jobs:
           echo "Waiting for service to be healthy..."
           for i in {1..15}; do
             if curl -s -f http://localhost:8080/healthz; then
-              echo " Service is healthy!"
+              echo "Service is healthy!"
               break
             fi
             echo "Waiting ($i/15)..."
@@ -152,16 +100,16 @@ jobs:
       - name: Verify API endpoints
         run: |
           echo "=== 1. Health Probe ==="
-          curl -s http://localhost:8080/healthz | jq .
-          
+          curl -s http://localhost:8080/healthz
+          echo ""
           echo "=== 2. Version Info ==="
-          curl -s http://localhost:8080/version | jq .
-          
+          curl -s http://localhost:8080/version
+          echo ""
           echo "=== 3. Create Sample Order ==="
           curl -s -X POST http://localhost:8080/api/v1/orders \
             -H "Content-Type: application/json" \
-            -d '{"customer_id":"cust_test_01","items":[{"product_id":"item_1","title":"Go Book","quantity":2,"price":49.99}]}' | jq .
-          
+            -d '{"customer_id":"cust_test_01","items":[{"product_id":"item_1","title":"Go Book","quantity":2,"price":49.99}]}'
+          echo ""
           echo "=== 4. Check Container Status ==="
           docker ps --filter "name=order-service-prod"
 
