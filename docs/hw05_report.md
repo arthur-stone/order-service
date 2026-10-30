@@ -5,11 +5,19 @@
 
 ---
 
-## 1. Структура приложения
+## 1. Ссылка на Pull Request и репозиторий
+
+* **Репозиторий проекта:** [https://github.com/arthur-stone/order-service](https://github.com/arthur-stone/order-service)
+* **Pull Request c результатами:** [PR #1: Microservice Architecture, Dockerization, and Full CI/CD Pipeline](https://github.com/arthur-stone/order-service/pull/1)
+* **Опубликованный контейнер в GHCR:** `ghcr.io/arthur-stone/order-service:latest`
+
+---
+
+## 2. Структура приложения
 
 Микросервис **`order-service`** реализован по принципам Чистой Архитектуры (Clean Architecture) и DDD:
-* **`cmd/server/`** — точка входа (`main.go`), инициализация зависимостей, перехват системных прерываний (`SIGINT`, `SIGTERM`) и Graceful Shutdown.
-* **`internal/domain/`** — ядро бизнес-логики: Агрегат `Order`, сущности `OrderItem`, перечисления статусов (`CREATED`, `PAID`, `CANCELLED`), инварианты валидации и переходы состояний.
+* **`cmd/server/main.go`** — точка входа, DI, перехват системных прерываний (`SIGINT`, `SIGTERM`) и Graceful Shutdown.
+* **`internal/domain/`** — ядро бизнес-логики: Агрегат `Order`, сущности `OrderItem`, перечисления статусов (`CREATED`, `PAID`, `CANCELED`), инварианты валидации и переходы состояний.
 * **`internal/repository/`** — порты и адаптеры хранилища: потокобезопасная in-memory реализация с использованием `sync.RWMutex`.
 * **`internal/service/`** — сценарии использования (Usecases): создание заказа, оплата, отмена, выборка с пагинацией.
 * **`internal/handler/`** — HTTP-контроллеры: эндпоинты API заказов, а также пробы `/healthz`, `/ready` и `/version`.
@@ -17,7 +25,7 @@
 
 ---
 
-## 2. Локальная сборка и проверка качества
+## 3. Локальная сборка и качество кода
 
 Для автоматизации локальной разработки подготовлен `Makefile`:
 * `make fmt` — автоматическое форматирование кода (`go fmt`).
@@ -30,7 +38,7 @@
 
 ---
 
-## 3. Контейнеризация (Multi-stage Dockerfile)
+## 4. Контейнеризация (Multi-stage Dockerfile)
 
 Dockerfile разделен на два изолированных этапа для минимизации размера и повышения безопасности:
 1. **Builder Stage (`golang:1.24-alpine`)**:
@@ -39,42 +47,65 @@ Dockerfile разделен на два изолированных этапа д
 2. **Runtime Stage (`alpine:3.21`)**:
    * Создание непривилегированного пользователя и группы `appuser:appgroup` (non-root execution).
    * Установка системных сертификатов `ca-certificates` и часовых поясов `tzdata`.
-   * Копирование только скомпилированного бинарного файла.
+   * Копирование скомпилированного бинарного файла.
    * Настройка встроенного `HEALTHCHECK` с опросом эндпоинта `/healthz`.
    * Итоговый размер образа составляет менее 20 MB.
 
 ---
 
-## 4. CI/CD Пайплайн (GitHub Actions)
+## 5. CI/CD Пайплайн (GitHub Actions + Self-Hosted Runner)
 
 В файле `.github/workflows/ci-cd.yml` настроен сквозной пайплайн, запускающийся при пушах и создании Pull Request:
 
-1. **Этап `lint`**:
-   * Проверка исходного кода официальным `golangci/golangci-lint-action@v6`.
-2. **Этап `test`**:
-   * Запуск тестов с детектором гонок (`go test -v -race -coverprofile=coverage.out ./...`).
-3. **Этап `build`**:
-   * Проверка сборки исполняемого файла под целевую архитектуру Linux.
-4. **Этап `docker-build-push`**:
-   * Авторизация в **GitHub Container Registry (`ghcr.io`)** через нативный `${{ secrets.GITHUB_TOKEN }}`.
-   * Сборка образа с кэшированием слоев через GitHub Actions Cache (`type=gha`).
-   * Публикация образов с тегами `sha-<commit>` и `latest`.
-5. **Этап `deploy`**:
-   * Автоматический pull опубликованного образа из реестра `ghcr.io`.
-   * Запуск контейнера в продакшн-режиме (`docker run -d -p 8080:8080 ...`).
-   * Ожидание перехода в статус готовности (Healthcheck `/healthz`).
-   * Проверка API: опрос `/version` и создание тестового заказа через `curl`.
+1. **Этап `lint` (`Code Linting`)**:
+   * Проверка исходного кода линтером `golangci-lint run ./...` — пройден без единой ошибки и предупреждения.
+2. **Этап `test` (`Unit & Domain Tests`)**:
+   * Запуск тестов с детектором гонок (`go test -v -race -coverprofile=coverage.out ./...`) — 100% тестов пройдены.
+3. **Этап `build` (`Compile Binary`)**:
+   * Проверка кросс-компиляции бинарника под Linux с внедрением версии и commit sha.
+4. **Этап `docker-build-push` (`Build & Push Docker Image`)**:
+   * Авторизация в **GitHub Container Registry (`ghcr.io`)** через `${{ secrets.GITHUB_TOKEN }}`.
+   * Сборка Docker-образа и публикация тегов `sha-<commit>` и `latest` в реестр.
+5. **Этап `deploy` (`Deploy & Healthcheck Verification`)**:
+   * Деплой на целевой сервер (через Self-Hosted Runner):
+   * Авторизация в GHCR, `docker pull` опубликованного образа;
+   * Запуск контейнера в фоновом режиме: `docker run -d --name order-service-prod -p 8080:8080`;
+   * Ожидание готовности по `/healthz`;
+   * Проверка эндпоинтов `/version`, `/healthz`, создание тестового заказа через `curl`;
+   * Корректный cleanup контейнера после верификации.
 
 ---
 
-## 5. Результаты и ссылки
+## 6. Результаты выполнения пайплайна (Лог прогона)
 
-* **Репозиторий проекта:** [github.com/arthur-stone/order-service](https://github.com/arthur-stone/order-service)
-* **Ссылка на Pull Request:** [PR #1: CI/CD Pipeline & Application Build](https://github.com/arthur-stone/order-service/pull/1)
-* **Контейнер в реестре GHCR:** `ghcr.io/arthur-stone/order-service:latest`
+```text
+✓ Code Linting in 14s (ID 124302511449)
+✓ Unit & Domain Tests in 13s (ID 124302511723)
+✓ Compile Binary in 12s (ID 124303047616)
+✓ Build & Push Docker Image in 18s (ID 124303287451)
+✓ Deploy & Healthcheck Verification in 12s (ID 124303607546)
+```
 
-### Скриншоты:
-1. *Успешное выполнение всех стадий CI/CD пайплайна в GitHub Actions*:
-   `![CI/CD Pipeline](screenshots/ci_cd_pipeline_success.png)`
-2. *Локальный/серверный запуск и проверка эндпоинтов `/healthz`, `/version`*:
-   `![Server Run](screenshots/server_run_healthz.png)`
+### Лог верификации на сервере деплоя:
+```text
+Deploying image: ghcr.io/arthur-stone/order-service:sha-74fd07f
+Status: Image is up to date for ghcr.io/arthur-stone/order-service:sha-74fd07f
+8c2693793f34ecb6bc255f3cfefb08523a9ac074875ee96be1c525503f8a6f27
+
+Waiting for service to be healthy...
+{"status":"UP"}
+Service is healthy!
+
+=== 1. Health Probe ===
+{"status":"UP"}
+
+=== 2. Version Info ===
+{"version":"1.0.0","commit":"dc84256","build_date":"2026-10-30T20:45:00Z"}
+
+=== 3. Create Sample Order ===
+{"id":"ord_5cb893593466b0b0","customer_id":"cust_test_01","items":[{"id":"item_81f2a27ae98f2231","product_id":"item_1","title":"Go Book","quantity":2,"price":49.99}],"total_amount":99.98,"status":"CREATED","created_at":"2026-10-30T20:45:52.878785365Z","updated_at":"2026-10-30T20:45:52.878785365Z"}
+
+=== 4. Check Container Status ===
+CONTAINER ID   IMAGE                                            COMMAND                CREATED                  STATUS                                     PORTS                                         NAMES
+8c2693793f34   ghcr.io/arthur-stone/order-service:sha-74fd07f   "/app/order-service"   Less than a second ago   Up Less than a second (health: starting)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp   order-service-prod
+```
